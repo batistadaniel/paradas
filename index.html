@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mapa de Paradas - Mobilidade DF</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        /* Reset básico e ocultação de qualquer scroll global */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        *::-webkit-scrollbar {
+            display: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8f8f8;
+            display: flex;
+        }
+
+        #container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Painel Lateral Esquerdo Claro */
+        #sidebar {
+            width: 380px;
+            height: 100%;
+            background: #f8f8f8;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.15);
+            z-index: 10;
+            display: none; 
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            padding-right: 45px; 
+        }
+
+        .sidebar-header h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+
+        .sidebar-header p {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        /* Botão Fechar */
+        .btn-fechar {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            width: 28px;
+            height: 28px;
+            background: #e2e8f0;
+            border: none;
+            border-radius: 50%;
+            color: #475569;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease;
+        }
+        .btn-fechar:hover {
+            background: #cbd5e1;
+            color: #0f172a;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: scroll;
+            padding: 0px;
+        }
+
+        /* Efeito de piscar forte no Refresh da tabela */
+        .flash-refresh {
+            animation: flashEffect 0.5s ease-in-out;
+        }
+        @keyframes flashEffect {
+            0% { opacity: 1; }
+            50% { opacity: 0.1; background-color: #cbd5e1; }
+            100% { opacity: 1; }
+        }
+
+        /* Efeito pulsação suave para linhas com GPS ativo */
+        @keyframes pulseGps {
+            0% { background-color: rgba(34, 197, 94, 0.15); }
+            50% { background-color: rgba(34, 197, 94, 0.35); }
+            100% { background-color: rgba(34, 197, 94, 0.15); }
+        }
+
+        /* Estrutura de exibição adaptada da Tabela */
+        .bus-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        /* Cabeçalho expandido, fixo e opaco */
+        .bus-table th {
+            padding: 14px 8px;
+            background: #ffffff;
+            color: #1e293b;
+            font-weight: 700;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .bus-table th.col-horario, .bus-table th.col-linha {
+            text-align: center;
+        }
+        .bus-table th.col-destino {
+            text-align: left;
+        }
+        
+        .bus-table td {
+            padding: 12px 6px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+        }
+
+        /* Classes de linha baseada no GPS */
+        .linha-com-gps {
+            animation: pulseGps 2s infinite ease-in-out;
+        }
+
+        /* Distribuição e Alinhamentos das colunas */
+        .col-horario { width: 26%; text-align: center; }
+        .col-linha   { width: 20%; text-align: center; }
+        .col-destino { width: 54%; text-align: left; color: #000000; font-weight: 600; }
+
+        /* Badge da Linha Customizado por Operadora */
+        .badge-linha {
+            display: inline-block;
+            padding: 5px 6px;
+            border-radius: 6px;
+            font-weight: 800;
+            text-align: center;
+            min-width: 60px;
+            font-size: 14px;
+            letter-spacing: 0.5px; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        /* Container do horário e sub-avisos */
+        .container-tempo {
+            display: flex;
+            flex-direction: column;
+            align-items: center; 
+            line-height: 1.2;
+        }
+        .tempo-chegada {
+            font-size: 17px; 
+            font-weight: 700;
+            color: #000000; 
+        }
+        .tempo-agora {
+            color: #16a34a; 
+            font-weight: 800;
+            font-size: 17px; 
+        }
+        .label-amanha {
+            font-size: 9px;
+            font-weight: 700;
+            color: #dc2626; 
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+        .label-prefixo {
+            font-size: 13px; 
+            font-weight: 700;
+            color: #16a34a; 
+            margin-top: 2px;
+        }
+
+        .msg-estado {
+            text-align: center;
+            color: #64748b;
+            padding: 40px 20px;
+            font-size: 14px;
+        }
+
+        /* Ajustes para Mobile */
+        @media (max-width: 600px) {
+            #container { flex-direction: column-reverse; }
+            #sidebar { width: 100%; height: 42dvh; }
+            #map { height: 58dvh; }
+        }
+
+        /* Estilos dos Botões de Parada */
+        .custom-stop-icon { display: flex; align-items: center; justify-content: center; }
+        .stop-button {
+            width: 7px; height: 7px;
+            background-color: #e1e0e0;
+            border: 1.5px solid #5f5f5f;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+            transition: transform 0.1s ease;
+        }
+        .stop-button:hover { transform: scale(1.4); background-color: #cbd4db; }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <aside id="sidebar">
+            <button class="btn-fechar" id="btn-fechar-painel" title="Fechar">&times;</button>
+            <div class="sidebar-header">
+                <h2 id="nome-parada">Selecione uma parada</h2>
+                <p id="subtitulo-parada">Buscando previsões...</p>
+            </div>
+            <div class="sidebar-content" id="conteudo-parada"></div>
+        </aside>
+
+        <div id="map"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const CAMINHO_ICONE_LOCAL = 'https://bus2.info/assets/images/pins/Bus2_pinBus.png';
+        const CENTRO_BRASILIA = [-15.7938, -47.8827];
+        const BASE_API = 'https://api-df-no-ponto.vercel.app/paradas';
+
+        let paradaSelecionadaAtual = null;
+        let intervaloRefresh = null;
+
+        const cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 21, maxNativeZoom: 19 });
+        const googleHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 21, maxNativeZoom: 19, subdomains: ['0', '1', '2', '3'] });
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21, maxNativeZoom: 19 });
+        const esriSatelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 18 });
+
+        const map = L.map('map', {
+            center: CENTRO_BRASILIA,
+            zoom: 16, 
+            minZoom: 4, 
+            maxZoom: 21,
+            layers: [osm], 
+            closePopupOnClick: false,
+            zoomControl: false 
+        });
+
+        const layersMap = { "Padrão": osm, "Ruas": cartoVoyager, "Híbrido": googleHybrid, "Satélite": esriSatelite };
+        L.control.layers(layersMap, null, { position: 'topright', collapsed: true }).addTo(map);
+
+        const stopIconNormal = L.divIcon({
+            html: '<div class="stop-button"></div>',
+            className: 'custom-stop-icon',
+            iconSize: [7, 7],
+            iconAnchor: [3.5, 3.5]
+        });
+
+        const markersLayer = L.layerGroup().addTo(map);
+        let dadosParadas = [];
+
+        function renderizarApenasVisiveis() {
+            markersLayer.clearLayers();
+            const zoomAtual = map.getZoom();
+            
+            if (zoomAtual < 13) return;
+
+            const limitesTela = map.getBounds();
+            let pulo = 1;
+            if (zoomAtual === 13) pulo = 6;
+            if (zoomAtual === 14) pulo = 2;
+
+            let contador = 0;
+
+            dadosParadas.forEach(parada => {
+                if (parada.latitude && parada.longitude) {
+                    const localizacao = L.latLng(parada.latitude, parada.longitude);
+
+                    if (limitesTela.contains(localizacao)) {
+                        contador++;
+                        if (contador % pulo === 0) {
+                            let iconeDefinido;
+
+                            if (zoomAtual >= 16) {
+                                let tam = zoomAtual >= 19 ? 22 : 26;
+                                const metade = tam / 2;
+                                iconeDefinido = L.icon({
+                                    iconUrl: CAMINHO_ICONE_LOCAL,
+                                    iconSize: [tam, tam],
+                                    iconAnchor: [metade, metade]
+                                });
+                            } else {
+                                iconeDefinido = stopIconNormal;
+                            }
+
+                            const marker = L.marker(localizacao, { icon: iconeDefinido });
+                            
+                            marker.on('click', (e) => {
+                                L.DomEvent.stopPropagation(e); 
+                                selecionarParada(parada.id_parada_hash);
+                            });
+
+                            markersLayer.addLayer(marker);
+                        }
+                    }
+                }
+            });
+        }
+
+        function fecharPainelLateral() {
+            document.getElementById('sidebar').style.display = 'none';
+            paradaSelecionadaAtual = null;
+            clearInterval(intervaloRefresh);
+            map.invalidateSize();
+        }
+
+        document.getElementById('btn-fechar-painel').addEventListener('click', fecharPainelLateral);
+        map.on('click', fecharPainelLateral);
+
+        async function selecionarParada(hash, ehRefresh = false) {
+            paradaSelecionadaAtual = hash;
+            const painelSidebar = document.getElementById('sidebar');
+            
+            if (!ehRefresh) {
+                painelSidebar.style.display = 'flex';
+                map.invalidateSize(); 
+
+                document.getElementById('nome-parada').innerText = "Carregando...";
+                document.getElementById('subtitulo-parada').innerText = "Buscando previsões em tempo real...";
+                document.getElementById('conteudo-parada').innerHTML = '<div class="msg-estado">Buscando linhas...</div>';
+                
+                clearInterval(intervaloRefresh);
+                intervaloRefresh = setInterval(() => {
+                    if (paradaSelecionadaAtual) selecionarParada(paradaSelecionadaAtual, true);
+                }, 30000);
+            }
+
+            try {
+                const resParada = await fetch(`${BASE_API}/${hash}`);
+                if (!resParada.ok) throw new Error();
+                const dadosHash = await resParada.json();
+                
+                const idRealParada = dadosHash.parada.id_parada_hash;
+                const nomeParada = dadosHash.parada.nome;
+                const codigoParada = dadosHash.parada.codigo || "Metrô / DF";
+
+                document.getElementById('nome-parada').innerText = nomeParada;
+                document.getElementById('subtitulo-parada').innerText = `Código: ${codigoParada}`;
+
+                const resProximos = await fetch(`${BASE_API}/${idRealParada}/proximos`);
+                if (!resProximos.ok) throw new Error();
+                const dadosProximos = await resProximos.json();
+
+                renderizarTabelaProximos(dadosProximos.linhas, ehRefresh);
+
+            } catch (error) {
+                document.getElementById('nome-parada').innerText = "Erro ao carregar";
+                document.getElementById('conteudo-parada').innerHTML = '<div class="msg-estado">Não foi possível obter dados desta parada.</div>';
+            }
+        }
+
+        function renderizarTabelaProximos(linhas, ehRefresh) {
+            const containerDados = document.getElementById('conteudo-parada');
+            let previsoesFinais = [];
+
+            linhas.forEach(linha => {
+                if (linha.proximos && linha.proximos.length > 0) {
+                    const proximoNoTopo = linha.proximos[0];
+                    
+                    let codigoExibicao = inlineProximo = linha.codigo_linha;
+                    let corFinalOperadora = linha.cor_operadora || '#71717a';
+
+                    if (!codigoExibicao && linha.nome_linha) {
+                        if (linha.nome_linha.includes("Ceilândia") || linha.nome_linha.includes("Samambaia")) {
+                            codigoExibicao = "METRÔ";
+                        }
+                    }
+
+                    previsoesFinais.push({
+                        codigo: codigoExibicao || "Trem",
+                        destino: linha.destino,
+                        corBg: corFinalOperadora,
+                        horarioMeta: proximoNoTopo.horario,
+                        amanha: proximoNoTopo.proximo_dia === true,
+                        veiculo: proximoNoTopo.veiculo || null
+                    });
+                }
+            });
+
+            if (previsoesFinais.length === 0) {
+                containerDados.innerHTML = '<div class="msg-estado">Nenhum ônibus programado ou monitorado no momento.</div>';
+                return;
+            }
+
+            previsoesFinais.sort((a, b) => {
+                if (a.amanha !== b.amanha) {
+                    return a.amanha ? 1 : -1; 
+                }
+                return a.horarioMeta.localeCompare(b.horarioMeta);
+            });
+
+            let htmlTabela = `
+                <table class="bus-table">
+                    <thead>
+                        <tr>
+                            <th class="col-horario">Horário</th>
+                            <th class="col-linha">Linha</th>
+                            <th class="col-destino">Destino</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lista-linhas-corpo">
+            `;
+
+            previsoesFinais.forEach(item => {
+                const textoTempo = calcularTempoRestante(item.horarioMeta, item.amanha);
+                
+                let labelAdicional = item.amanha ? `<span class="label-amanha">Amanhã</span>` : '';
+                
+                if (item.veiculo) {
+                    labelAdicional += `<span class="label-prefixo">${item.veiculo}</span>`;
+                }
+
+                const classeGps = item.veiculo ? 'class="linha-com-gps"' : '';
+
+                const corTextoLinha = (item.corBg.toLowerCase() === '#bbff00' || item.corBg.toLowerCase() === '#ffd200') ? '#000000' : '#ffffff';
+
+                htmlTabela += `
+                    <tr ${classeGps}>
+                        <td class="col-horario">
+                            <div class="container-tempo">
+                                <span class="tempo-chegada">${textoTempo}</span>
+                                ${labelAdicional}
+                            </div>
+                        </td>
+                        <td class="col-linha">
+                            <span class="badge-linha" style="background-color: ${item.corBg}; color: ${corTextoLinha};">
+                                ${item.codigo}
+                            </span>
+                        </td>
+                        <td class="col-destino">${item.destino}</td>
+                    </tr>
+                `;
+            });
+
+            htmlTabela += `</tbody></table>`;
+            containerDados.innerHTML = htmlTabela;
+
+            if (ehRefresh) {
+                const corpoTabela = document.getElementById('lista-linhas-corpo');
+                if (corpoTabela) {
+                    corpoTabela.classList.add('flash-refresh');
+                    setTimeout(() => corpoTabela.classList.remove('flash-refresh'), 500);
+                }
+            }
+        }
+
+        function calcularTempoRestante(horarioMeta, ehAmanha) {
+            if (ehAmanha) {
+                return horarioMeta.substring(0, 5);
+            }
+
+            const agora = new Date();
+            const [horas, minutos, segundos] = horarioMeta.split(':').map(Number);
+            const dataMeta = new Date();
+            dataMeta.setHours(horas, minutos, segundos, 0);
+
+            let diferencaMs = dataMeta - agora;
+            const totalMinutos = Math.floor(diferencaMs / 60000);
+
+            if (totalMinutos < 1) {
+                return `<span class="tempo-agora">Agora</span>`;
+            } else if (totalMinutos < 60) {
+                return `${totalMinutos} min`;
+            } else {
+                return horarioMeta.substring(0, 5);
+            }
+        }
+
+        async function carregarPontos() {
+            try {
+                const response = await fetch(BASE_API);
+                if (!response.ok) throw new Error();
+                const resultado = await response.json();
+                dadosParadas = resultado.paradas || [];
+                renderizarApenasVisiveis();
+            } catch (error) {
+                console.error('Erro ao processar a API de paradas:', error);
+            }
+        }
+
+        map.on('moveend', renderizarApenasVisiveis);
+        map.on('zoomend', renderizarApenasVisiveis);
+
+        carregarPontos();
+    </script>
+</body>
+</html>
