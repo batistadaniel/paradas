@@ -362,6 +362,7 @@
             }
 
             try {
+                // Adicionado controller de timeout para evitar travamento em redes móveis instáveis
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -375,6 +376,7 @@
                 const codigoParada = dadosHash.parada.codigo;
 
                 document.getElementById('nome-parada').innerText = nomeParada;
+                // Correção: Se o código for nulo ou vazio, não exibe o prefixo "Código:"
                 document.getElementById('subtitulo-parada').innerText = codigoParada ? `Código: ${codigoParada}` : '';
 
                 const timeoutId2 = setTimeout(() => controller.abort(), 8000);
@@ -386,6 +388,7 @@
                 renderizarTabelaProximos(dadosProximos.linhas, ehRefresh);
 
             } catch (error) {
+                // Se falhar em um refresh automático em segundo plano, ignora silenciosamente para manter a tabela antiga na tela
                 if (!ehRefresh) {
                     document.getElementById('nome-parada').innerText = "Erro ao carregar";
                     document.getElementById('conteudo-parada').innerHTML = '<div class="msg-estado">Não foi possível obter dados desta parada.</div>';
@@ -400,38 +403,39 @@
             }, 30000);
         }
 
+        // Lógica contra suspensão em background/bloqueio de tela
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && paradaSelecionadaAtual) {
+                // Força atualização imediata assim que o usuário abre o app/desbloqueia a tela
                 selecionarParada(paradaSelecionadaAtual, true);
-                configurarTemporizador(); 
+                configurarTemporizador(); // Reinicia o ciclo estável de 30s
             }
         });
 
-        // Nova função atualizada para varrer múltiplos horários de forma estável
         function renderizarTabelaProximos(linhas, ehRefresh) {
             const containerDados = document.getElementById('conteudo-parada');
             let previsoesFinais = [];
 
             linhas.forEach(linha => {
                 if (linha.proximos && linha.proximos.length > 0) {
-                    linha.proximos.forEach(proximo => {
-                        let codigoExibicao = linha.codigo_linha;
-                        let corFinalOperadora = linha.cor_operadora || '#71717a';
+                    const proximoNoTopo = linha.proximos[0];
+                    
+                    let codigoExibicao = linha.codigo_linha;
+                    let corFinalOperadora = linha.cor_operadora || '#71717a';
 
-                        if (!codigoExibicao && linha.nome_linha) {
-                            if (linha.nome_linha.includes("Ceilândia") || linha.nome_linha.includes("Samambaia")) {
-                                codigoExibicao = "METRÔ";
-                            }
+                    if (!codigoExibicao && linha.nome_linha) {
+                        if (linha.nome_linha.includes("Ceilândia") || linha.nome_linha.includes("Samambaia")) {
+                            codigoExibicao = "METRÔ";
                         }
+                    }
 
-                        previsoesFinais.push({
-                            codigo: codigoExibicao || "",
-                            destino: linha.destino,
-                            corBg: corFinalOperadora,
-                            horarioMeta: proximo.horario,
-                            amanha: proximo.proximo_dia === true,
-                            veiculo: proximo.veiculo || null
-                        });
+                    previsoesFinais.push({
+                        codigo: codigoExibicao || "",
+                        destino: linha.destino,
+                        corBg: corFinalOperadora,
+                        horarioMeta: proximoNoTopo.horario,
+                        amanha: proximoNoTopo.proximo_dia === true,
+                        veiculo: proximoNoTopo.veiculo || null
                     });
                 }
             });
@@ -470,6 +474,7 @@
                 }
 
                 const classeGps = item.veiculo ? 'class="linha-com-gps"' : '';
+
                 const corTextoLinha = (item.corBg.toLowerCase() === '#bbff00' || item.corBg.toLowerCase() === '#ffd200') ? '#000000' : '#ffffff';
 
                 htmlTabela += `
