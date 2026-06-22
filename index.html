@@ -358,35 +358,59 @@
                 document.getElementById('subtitulo-parada').innerText = "Buscando previsões em tempo real...";
                 document.getElementById('conteudo-parada').innerHTML = '<div class="msg-estado">Buscando linhas...</div>';
                 
-                clearInterval(intervaloRefresh);
-                intervaloRefresh = setInterval(() => {
-                    if (paradaSelecionadaAtual) selecionarParada(paradaSelecionadaAtual, true);
-                }, 30000);
+                configurarTemporizador();
             }
 
             try {
-                const resParada = await fetch(`${BASE_API}/${hash}`);
+                // Adicionado controller de timeout para evitar travamento em redes móveis instáveis
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                const resParada = await fetch(`${BASE_API}/${hash}`, { signal: controller.signal });
                 if (!resParada.ok) throw new Error();
                 const dadosHash = await resParada.json();
+                clearTimeout(timeoutId);
                 
                 const idRealParada = dadosHash.parada.id_parada_hash;
                 const nomeParada = dadosHash.parada.nome;
-                const codigoParada = dadosHash.parada.codigo || "Metrô / DF";
+                const codigoParada = dadosHash.parada.codigo;
 
                 document.getElementById('nome-parada').innerText = nomeParada;
-                document.getElementById('subtitulo-parada').innerText = `Código: ${codigoParada}`;
+                // Correção: Se o código for nulo ou vazio, não exibe o prefixo "Código:"
+                document.getElementById('subtitulo-parada').innerText = codigoParada ? `Código: ${codigoParada}` : '';
 
-                const resProximos = await fetch(`${BASE_API}/${idRealParada}/proximos`);
+                const timeoutId2 = setTimeout(() => controller.abort(), 8000);
+                const resProximos = await fetch(`${BASE_API}/${idRealParada}/proximos`, { signal: controller.signal });
                 if (!resProximos.ok) throw new Error();
                 const dadosProximos = await resProximos.json();
+                clearTimeout(timeoutId2);
 
                 renderizarTabelaProximos(dadosProximos.linhas, ehRefresh);
 
             } catch (error) {
-                document.getElementById('nome-parada').innerText = "Erro ao carregar";
-                document.getElementById('conteudo-parada').innerHTML = '<div class="msg-estado">Não foi possível obter dados desta parada.</div>';
+                // Se falhar em um refresh automático em segundo plano, ignora silenciosamente para manter a tabela antiga na tela
+                if (!ehRefresh) {
+                    document.getElementById('nome-parada').innerText = "Erro ao carregar";
+                    document.getElementById('conteudo-parada').innerHTML = '<div class="msg-estado">Não foi possível obter dados desta parada.</div>';
+                }
             }
         }
+
+        function configurarTemporizador() {
+            clearInterval(intervaloRefresh);
+            intervaloRefresh = setInterval(() => {
+                if (paradaSelecionadaAtual) selecionarParada(paradaSelecionadaAtual, true);
+            }, 30000);
+        }
+
+        // Lógica contra suspensão em background/bloqueio de tela
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && paradaSelecionadaAtual) {
+                // Força atualização imediata assim que o usuário abre o app/desbloqueia a tela
+                selecionarParada(paradaSelecionadaAtual, true);
+                configurarTemporizador(); // Reinicia o ciclo estável de 30s
+            }
+        });
 
         function renderizarTabelaProximos(linhas, ehRefresh) {
             const containerDados = document.getElementById('conteudo-parada');
@@ -396,7 +420,7 @@
                 if (linha.proximos && linha.proximos.length > 0) {
                     const proximoNoTopo = linha.proximos[0];
                     
-                    let codigoExibicao = inlineProximo = linha.codigo_linha;
+                    let codigoExibicao = linha.codigo_linha;
                     let corFinalOperadora = linha.cor_operadora || '#71717a';
 
                     if (!codigoExibicao && linha.nome_linha) {
@@ -406,7 +430,7 @@
                     }
 
                     previsoesFinais.push({
-                        codigo: codigoExibicao || "Trem",
+                        codigo: codigoExibicao || "",
                         destino: linha.destino,
                         corBg: corFinalOperadora,
                         horarioMeta: proximoNoTopo.horario,
